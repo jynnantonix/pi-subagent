@@ -64,22 +64,24 @@ reconstruction. The extension does not implement a second transcript format.
 New conversation:
 
 ```json
-{"agent":"reviewer","task":"Review the implementation"}
+{ "agent": "reviewer", "task": "Review the implementation" }
 ```
 
 Follow-up in the same conversation:
 
 ```json
-{"resume":"reviewer-a1b2c3d4","task":"Review the fixes to your findings"}
+{ "resume": "reviewer-a1b2c3d4", "task": "Review the fixes to your findings" }
 ```
 
 Parallel and chain items accept the same selector:
 
 ```json
-{"tasks":[
-  {"resume":"reviewer-a1b2c3d4","task":"Recheck the fixes"},
-  {"agent":"worker","task":"Inspect the test fixtures"}
-]}
+{
+  "tasks": [
+    { "resume": "reviewer-a1b2c3d4", "task": "Recheck the fixes" },
+    { "agent": "worker", "task": "Inspect the test fixtures" }
+  ]
+}
 ```
 
 ### Validation
@@ -277,16 +279,16 @@ Retain the session and identify the interrupted conversation in available output
 
 Failure rules:
 
-| Condition | Required behavior |
-| --- | --- |
-| Invalid call or duplicate parallel resume IDs | Reject before dispatch; create no sessions. |
-| Unknown ID, incomplete snapshot, missing/invalid transcript | Fail without initializing, replacing, or repairing history. |
-| Busy conversation | Fail without starting a second writer. |
-| Missing directory, unavailable saved model/tool, incompatible thinking level | Fail without substitution. |
-| Spawn, provider, or child-process failure | Report the actual diagnostic and allocated ID; retain persisted state. |
-| New-run failure before a complete snapshot/transcript exists | Report initialization failure and that the ID is not resumable. |
-| One parallel task fails | Report its failure and retain the other tasks' outputs and IDs. |
-| Chain step fails | Stop the chain and report IDs for all steps already executed. |
+| Condition                                                                    | Required behavior                                                      |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Invalid call or duplicate parallel resume IDs                                | Reject before dispatch; create no sessions.                            |
+| Unknown ID, incomplete snapshot, missing/invalid transcript                  | Fail without initializing, replacing, or repairing history.            |
+| Busy conversation                                                            | Fail without starting a second writer.                                 |
+| Missing directory, unavailable saved model/tool, incompatible thinking level | Fail without substitution.                                             |
+| Spawn, provider, or child-process failure                                    | Report the actual diagnostic and allocated ID; retain persisted state. |
+| New-run failure before a complete snapshot/transcript exists                 | Report initialization failure and that the ID is not resumable.        |
+| One parallel task fails                                                      | Report its failure and retain the other tasks' outputs and IDs.        |
+| Chain step fails                                                             | Stop the chain and report IDs for all steps already executed.          |
 
 Use Pi's supported tool-failure signaling for whole-call failures. Do not assume
 that a returned `isError` property alone marks an extension tool as failed in

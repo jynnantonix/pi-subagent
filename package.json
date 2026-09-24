@@ -1,0 +1,12 @@
+{
+  "name": "pi-subagent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "format:check": "prettier --check .",
+    "setup:jj": "node scripts/setup-jj-format.mjs"
+  },
+  "devDependencies": {
+    "prettier": "3.6.2"
+  }
+}

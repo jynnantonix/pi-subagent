@@ -1,0 +1,17 @@
+{
+  "printWidth": 120,
+  "overrides": [
+    {
+      "files": "*.ts",
+      "options": {
+        "useTabs": true
+      }
+    },
+    {
+      "files": "*.md",
+      "options": {
+        "proseWrap": "preserve"
+      }
+    }
+  ]
+}
