@@ -1,7 +1,7 @@
 # Persistent subagent conversations
 
 Date: 2026-09-24  
-Status: Proposed — awaiting written-spec approval  
+Status: Approved for implementation planning — user requested the plan on 2026-09-24  
 Repository: `/srv/code/pi-subagent`  
 Baseline: jj change `pxyxtyymrknx`
 
