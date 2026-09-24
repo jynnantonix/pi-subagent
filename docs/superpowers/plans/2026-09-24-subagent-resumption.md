@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-subagent-resumption-design.md`.
 
-**Status:** Proposed — awaiting user review and permission to dispatch plan review. No feature task has started.
+**Status:** User authorized independent plan review on 2026-09-24 and execution after it passes. Initial review requested changes; no feature task has started.
 
 ## Global Constraints
 
@@ -56,14 +56,14 @@ Each condition below has a regression test in its owning task:
 - Current format gate: `npm run format:check`. Task 1 extends the project gate to `npm run check` (format, types, tests).
 - Preserve the isolated `/srv/code/pi-subagent` workspace. No Git worktree, push, install, or reload is required to execute the source plan.
 
-Before execution, the controller obtains user approval of this plan and go-ahead for independent plan review. No plan reviewer has yet been dispatched. After that review passes, the controller keeps briefs, diffs, reports, and a progress ledger in `.superpowers/sdd/subagent-resumption/`. Inspect `jj status` and history before each dispatch. Do not use skill helper scripts that require Git operations.
+The user authorized plan review using the `plan-reviewer` role and execution once it passes, applying `.claude/commands/review-plan.md` and `execute-plan.md` from Predator through the available Pi tools. Their Claude-only Agent/SendMessage calls are not available here; use the explicitly approved fresh-reviewer bootstrap exception with prior findings and diffs. The user-selected models below override the adapters' model aliases. Keep briefs, diffs, reports, and a progress ledger in `.superpowers/sdd/subagent-resumption/`. Inspect `jj status` and history before each dispatch. Do not use skill helper scripts that require Git operations.
 
-| Group | Tasks | Deliverable                                   | Implementer model          | Reviewer model             |
-| ----- | ----- | --------------------------------------------- | -------------------------- | -------------------------- |
-| A     | 1     | Safe persistence and lease primitives, tested | `openai-codex/gpt-5.6-sol` | `openai-codex/gpt-6-astra` |
-| B     | 2     | Guarded native Pi child lifecycle, tested     | `openai-codex/gpt-5.6-sol` | `openai-codex/gpt-6-astra` |
-| C     | 3     | Public resume dispatch and UI, tested         | `openai-codex/gpt-5.6-sol` | `openai-codex/gpt-6-astra` |
-| D     | 4     | Operator docs, full verification and review   | Controller                 | `openai-codex/gpt-6-astra` |
+| Group | Tasks | Deliverable                                   | Implementer model        | Reviewer model             |
+| ----- | ----- | --------------------------------------------- | ------------------------ | -------------------------- |
+| A     | 1     | Safe persistence and lease primitives, tested | `openai-codex/gpt-6-sol` | `openai-codex/gpt-6-astra` |
+| B     | 2     | Guarded native Pi child lifecycle, tested     | `openai-codex/gpt-6-sol` | `openai-codex/gpt-6-astra` |
+| C     | 3     | Public resume dispatch and UI, tested         | `openai-codex/gpt-6-sol` | `openai-codex/gpt-6-astra` |
+| D     | 4     | Operator docs, full verification and review   | Controller               | `openai-codex/gpt-6-astra` |
 
 These are explicit installed agent mappings: `implementer-sol` and `reviewer-astra`. Group B carries the most runtime risk and must not be downgraded to a mechanical transcription task. Each code task ends with its applicable gate and independent spec/quality review. The controller handles code findings through an implementer, then returns findings and the updated diff to review until clear.
 
