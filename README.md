@@ -94,10 +94,12 @@ There is no automatic deletion, retention policy, session browser or migration. 
 
 ## Failures and recovery
 
-- **Unknown/invalid ID or history:** resume fails without creating or repairing a conversation. Keep the original files for inspection. Native history validation targets Pi 0.87.1.
+- **Unknown/invalid ID or history:** resume fails without creating or repairing a conversation. This includes invalid compaction references that could otherwise discard retained context. Keep the original files for inspection. Native history validation targets Pi 0.87.1.
 - **`not resumable`:** allocation occurred but a valid snapshot/history pair is unavailable. The ID is diagnostic, not a promise of recoverability. Start a new conversation if initialization never completed; do not fabricate its missing files.
 - **Busy conversation:** another owner holds `.lock`. No second writer starts, and leases are never stolen based on age. A busy result does not establish whether the history is resumable.
 - **Runtime failure/cancellation:** existing history is retained. Cancellation stops queue admission, signals active children, escalates from SIGTERM to SIGKILL after five seconds if needed, and waits for closure before releasing their leases. A later resume adds a new task to whatever Pi persisted.
+
+A progress-reporting callback failure is a whole-call error, even if a task succeeded. It stops queue admission and cancels admitted children; the call waits for their closure and lease cleanup and retains their IDs/results.
 
 An interrupted tool may already have changed files or external systems. There is no rollback or exactly-once guarantee. Inspect effects before asking the agent to retry.
 

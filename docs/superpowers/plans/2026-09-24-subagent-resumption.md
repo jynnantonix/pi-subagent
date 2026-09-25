@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-subagent-resumption-design.md`.
 
-**Status:** Approved for execution. `plan-reviewer` passed the corrected spec/plan on 2026-09-24 using `openai-codex/gpt-6-astra`; C1, C2, C3 and I1 were all addressed. The user authorized execution after this pass.
+**Status:** Source implemented and independently reviewed; installation remains pending separate approval. `plan-reviewer` passed the corrected spec/plan on 2026-09-24 using `openai-codex/gpt-6-astra`; C1, C2, C3 and I1 were all addressed. The user authorized execution after this pass. Final review and controller verification evidence is recorded below.
 
 ## Global Constraints
 
@@ -624,11 +624,11 @@ jj diff --summary
 
 Verify that tests ran, rather than accepting an empty filter. No live/paid smoke run or installation occurs without approval. Record the source completion evidence separately from deployed verification. Suggested description: `Document subagent resume usage and recovery`.
 
-- [ ] **Step 3: Whole-change independent review and fix loop.**
+- [x] **Step 3: Whole-change independent review and fix loop.**
 
 The controller supplies the original baseline through the top-of-stack jj diff, this spec/plan, implementation reports, and actual gate results to `reviewer-astra` on `openai-codex/gpt-6-astra`. Review source and README together. For each finding, fix through an implementer (controller fixes docs), then re-run the affected gate and re-review under the explicit bootstrap exception until no findings remain. Do not substitute an implementer's assurance for review.
 
-- [ ] **Step 4: Report completion or perform separately approved installation verification.**
+- [x] **Step 4: Report completion or perform separately approved installation verification.**
 
 Completion report names stable jj change-ids, tests, and whether installation/reload occurred. If the user approves installation, the controller runs the real new-reviewer/follow-up smoke test and checks identical public/native session IDs and retained history. Do not declare general workflow capability from source-only tests or from this task's reviewer-continuity exception.
 
@@ -645,7 +645,9 @@ Tasks 1–3 passed independent spec/quality review and controller-run `npm run c
 Review and command evidence is in `.superpowers/sdd/subagent-resumption/`.
 Task 3's isolated orchestration runner adds failure-safe cleanup and tests shared-UI consent, cancelled waiters, bounded scheduling and mixed live/completed progress. The two-controller CLI test uses only the public ID and persisted storage to resume after controller exit and definition deletion.
 
-Task 4 documentation is written. The controller's final gate passed formatting, types and all 37 tests; whole-change review is pending. Installation/reload and live-provider smoke verification have not occurred. No installed extension files were changed.
+Task 4 source acceptance is complete. Whole-change review found FR-R1 (parallel progress failure could return before sibling closure) and FR-R2 (invalid compaction targets could drop retained history). Both were fixed in `szwrnkytqrxq` and independently re-reviewed: spec compliance and code quality approved, no open findings. The controller's final `npm run check` passed formatting, types and all **40 tests**, with no skips or failures; evidence: `final-controller-check.log` and `final-rereview-1.md` in the workspace above.
+
+This is source completion only. Installation/reload and live-provider smoke verification have not occurred. The installed `index.ts` and `agents.ts` still match the Pi 0.87.1 baseline. No general workflow-capability or deployed-verification claim is made.
 
 ## Self-review coverage
 

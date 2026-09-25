@@ -14,10 +14,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { SubagentParamsSchema } from "../dispatch.ts";
 import { createPiFixture } from "./helpers/pi-fixture.ts";
-import { writeFile, mkdir, rm } from "node:fs/promises";
+import { writeFile, mkdir, rm, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { readSavedConfig, sessionPaths } from "../session-store.ts";
 import type { SingleResult } from "../results.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 test("a task has one selector and parallel IDs must be unique", () => {
 	assert.equal(validateCall({ resume: "reviewer-a1b2c3d4", task: "follow-up" }).tasks[0]?.kind, "resume");
@@ -283,6 +284,47 @@ test("two independent controllers resume the same child through the real tool", 
 	assert.deepEqual(persisted, initial);
 });
 
+test("invalid native compaction targets reject resume before worker spawn without editing history", async (t) => {
+	const fixture = await createPiFixture(t);
+	await mkdir(join(fixture.agentDir, "agents"));
+	await writeFile(
+		join(fixture.agentDir, "agents/reviewer.md"),
+		"---\nname: reviewer\ndescription: fixture\nmodel: fixture/reviewer:high\n---\nPrompt.\n",
+	);
+	const first = await fixture.controller({ agent: "reviewer", task: "original" });
+	assert.equal(first.tool?.isError, false, JSON.stringify(first.tool));
+	const id = first.tool?.details?.results?.[0]?.conversationId as string;
+	const paths = sessionPaths(fixture.root, id);
+	const manager = SessionManager.open(paths.transcript);
+	const leaf = manager.getLeafId()!;
+	const user = manager.getEntries().find((entry) => entry.type === "message" && entry.message.role === "user")!;
+	manager.branch(user.id);
+	const offBranch = manager.appendCustomMessageEntry("fixture", "other branch", false);
+	manager.branch(leaf);
+	manager.appendCompaction("summary", user.id, 12);
+	const valid = await readFile(paths.transcript, "utf8");
+	const calls = (await fixture.providerCalls()).filter((call) => call.model === "fixture/reviewer").length;
+	for (const target of ["missing-entry", offBranch]) {
+		const lines = valid.trimEnd().split("\n");
+		const index = lines.findIndex((line) => JSON.parse(line).type === "compaction");
+		const compaction = JSON.parse(lines[index]!);
+		compaction.firstKeptEntryId = target;
+		lines[index] = JSON.stringify(compaction);
+		const bytes = `${lines.join("\n")}\n`;
+		await writeFile(paths.transcript, bytes);
+		const response = await fixture.controller({ resume: id, task: "must-not-spawn" });
+		assert.equal(response.tool?.isError, true, JSON.stringify(response.tool));
+		assert.equal(response.tool?.details?.results[0]?.conversationId, id);
+		assert.match(response.tool?.details?.results[0]?.errorMessage, /compaction target/);
+		assert.equal((await fixture.providerCalls()).filter((call) => call.model === "fixture/reviewer").length, calls);
+		assert.equal(await readFile(paths.transcript, "utf8"), bytes);
+		assert.deepEqual(await readdir(paths.dir), ["config.json", "session.jsonl"]);
+	}
+	await writeFile(paths.transcript, valid);
+	const resumed = await fixture.controller({ resume: id, task: "valid keep-range" });
+	assert.equal(resumed.tool?.isError, false, JSON.stringify(resumed.tool));
+});
+
 // A same-named definition and changed scope cannot replace saved project provenance.
 test("resume uses saved project identity after definition deletion and scope change", async (t) => {
 	const fixture = await createPiFixture(t);
@@ -371,7 +413,7 @@ test("mixed parallel outputs retain IDs and chain failure marks the real tool re
 
 // Each scenario runs in a separate process with its agent directory set before launch.
 // Its runner aborts and awaits all children and consent waiters before the fixture is removed.
-for (const scenario of ["invalid", "consent", "parallel", "allocated", "single-chain"]) {
+for (const scenario of ["invalid", "consent", "parallel", "progress-failure", "allocated", "single-chain"]) {
 	test(`isolated orchestration: ${scenario}`, async (t) => {
 		const fixture = await createPiFixture(t);
 		const result = await fixture.orchestrate(scenario);

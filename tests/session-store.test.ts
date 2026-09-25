@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	copyFile,
+	lstat,
+	mkdir,
+	mkdtemp,
+	readFile,
+	readdir,
+	rename,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fork } from "node:child_process";
@@ -16,6 +28,7 @@ import {
 	validateTranscript,
 } from "../session-store.ts";
 import { nativeSession, savedConfig, temporaryRoot } from "./helpers/fixtures.ts";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 test("allocation retries collisions; a lease excludes a second writer", async (t) => {
 	const root = await mkdtemp(join(tmpdir(), "pi-subagent-store-"));
@@ -156,6 +169,62 @@ test("native history checks header, every record, and parent references without 
 		assert.equal(await readFile(paths.transcript, "utf8"), contents);
 	}
 	await writeFile(paths.transcript, original);
+});
+
+// Accept native keep-range and retain-none, but never let a corrupt compaction
+// silently discard retained context (or repair the persisted bytes).
+test("every compaction target belongs to its preceding ancestor path", async (t) => {
+	const paths = await allocateSession(await temporaryRoot(t), "branches", () => "a1b2c3d4");
+	const manager = SessionManager.create(paths.root, paths.dir, { id: "native-session-id" });
+	const root = manager.appendMessage({ role: "user", content: "root", timestamp: Date.now() });
+	manager.appendMessage({
+		role: "assistant",
+		content: [{ type: "text", text: "answer" }],
+		api: "test",
+		provider: "example",
+		model: "example-model",
+		stopReason: "stop",
+		timestamp: Date.now(),
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+	});
+	const offBranch = manager.appendMessage({ role: "user", content: "alternate", timestamp: Date.now() });
+	manager.branch(root);
+	const kept = manager.appendMessage({ role: "user", content: "retain this", timestamp: Date.now() });
+	manager.appendCompaction("summary", kept, 10);
+	manager.appendCompaction("second summary", null, 12);
+	await copyFile(manager.getSessionFile()!, paths.transcript);
+	const config = savedConfig(paths);
+	const original = await readFile(paths.transcript, "utf8");
+	await validateTranscript(paths, config);
+	const records = original
+		.trimEnd()
+		.split("\n")
+		.map((line) => JSON.parse(line));
+	const compactions = records.flatMap((entry, index) => (entry.type === "compaction" ? [index] : []));
+	assert.equal(compactions.length, 2);
+	assert.equal(records[compactions[0]!]!.firstKeptEntryId, kept);
+	assert.equal(records[compactions[1]!]!.firstKeptEntryId, records[compactions[1]!]!.id);
+	for (const [index, target] of [
+		[compactions[0]!, "missing-entry"],
+		[compactions[0]!, offBranch],
+		[compactions[1]!, offBranch],
+	] as const) {
+		const corrupted = records.map((entry) => ({ ...entry }));
+		corrupted[index]!.firstKeptEntryId = target;
+		const bytes = `${corrupted.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+		await writeFile(paths.transcript, bytes);
+		await assert.rejects(validateTranscript(paths, config), /invalid.*compaction|invalid.*transcript/i);
+		assert.equal(await readFile(paths.transcript, "utf8"), bytes);
+	}
+	await writeFile(paths.transcript, original);
+	await validateTranscript(paths, config);
 });
 
 // Removing native content/role field validation must make this test fail.

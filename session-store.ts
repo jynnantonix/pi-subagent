@@ -499,7 +499,7 @@ export async function validateTranscript(paths: SessionPaths, config: SavedConfi
 		const text = await readFile(paths.transcript, "utf8");
 		const lines = text.split("\n").filter((line) => line.trim() !== "");
 		if (!lines.length || !text.endsWith("\n")) invalid("empty or truncated transcript");
-		const ids = new Set<string>();
+		const parents = new Map<string, string | null>();
 		for (const [index, line] of lines.entries()) {
 			let value: unknown;
 			try {
@@ -522,13 +522,20 @@ export async function validateTranscript(paths: SessionPaths, config: SavedConfi
 			}
 			if (
 				!nonempty(value.id) ||
-				ids.has(value.id) ||
-				!(value.parentId === null || (nonempty(value.parentId) && ids.has(value.parentId))) ||
+				parents.has(value.id) ||
+				!(value.parentId === null || (nonempty(value.parentId) && parents.has(value.parentId))) ||
 				!timestamp(value.timestamp) ||
 				!entry(value)
 			)
 				invalid(`transcript entry ${index + 1}`);
-			ids.add(value.id as string);
+			if (value.type === "compaction" && value.firstKeptEntryId !== value.id) {
+				// Pi 0.87.1 keeps only entries on this compaction's earlier path;
+				// a target elsewhere silently becomes retain-none. Check links, not context.
+				let ancestor = value.parentId as string | null;
+				while (ancestor !== null && ancestor !== value.firstKeptEntryId) ancestor = parents.get(ancestor)!;
+				if (ancestor === null) invalid(`transcript compaction target at entry ${index + 1}`);
+			}
+			parents.set(value.id as string, value.parentId as string | null);
 		}
 	});
 }

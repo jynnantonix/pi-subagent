@@ -245,6 +245,46 @@ async function parallelScenario() {
 	assert.equal(empty.details?.failed, true);
 	assert.deepEqual(empty.details?.results, []);
 }
+async function progressFailureScenario() {
+	const release = join(home, "release-first");
+	runtime.env.FIXTURE_GATE = join(home, "gate");
+	runtime.env.FIXTURE_RELEASE_FIRST = release;
+	const tasks = Array.from({ length: 6 }, (_, i) => ({ agent: "reviewer", task: `hold:${i}` }));
+	const updates: SubagentDetails[] = [];
+	const running = start({ tasks }, ctx(), (update) => {
+		if (update.details) updates.push(update.details);
+		if (update.details?.results.some((result) => result.task === "hold:0" && !result.running))
+			throw new Error("post-completion update failed");
+	});
+	await until(async () => (await calls()).filter((call) => call.model === "fixture/reviewer").length === 4);
+	await until(() =>
+		updates.some((update) => update.results.length === 4 && update.results.every((r) => r.conversationId)),
+	);
+	const admitted = updates
+		.find((update) => update.results.length === 4 && update.results.every((r) => r.conversationId))!
+		.results.map((result) => result.conversationId!);
+	const owners = await Promise.all(
+		admitted.slice(1).map(async (id) => JSON.parse(await readFile(join(root, id, ".lock/owner.json"), "utf8"))),
+	);
+	await writeFile(release, "go");
+	const result = await running.promise;
+	assert.equal(result.details?.failed, true);
+	assert.equal(result.details?.results.length, 4);
+	assert.deepEqual(
+		result.details?.results.map((r) => r.conversationId),
+		admitted,
+	);
+	assert.equal(result.details?.results[0]?.exitCode, 0);
+	assert.ok(result.details?.results.slice(1).every((entry) => entry.exitCode !== 0 && !entry.running));
+	assert.match(result.content[0]?.type === "text" ? result.content[0].text : "", /post-completion update failed/);
+	for (const id of admitted) assert.deepEqual(await readdir(join(root, id)), ["config.json", "session.jsonl"]);
+	for (const owner of owners) {
+		assert.ok(owner.childPid > 0);
+		assert.throws(() => process.kill(owner.childPid, 0), /ESRCH/);
+	}
+	assert.equal((await calls()).filter((call) => call.model === "fixture/reviewer").length, 4);
+	assert.deepEqual((await readdir(root)).sort(), [...admitted].sort());
+}
 async function allocatedScenario() {
 	const invocation = start({ agent: "reviewer", task: "never started" }, ctx(), (update) => {
 		if (update.details?.results[0]?.conversationId) invocation.abort.abort();
@@ -329,6 +369,9 @@ async function main() {
 		case "parallel":
 			await parallelScenario();
 			break;
+		case "progress-failure":
+			await progressFailureScenario();
+			break;
 		case "allocated":
 			await allocatedScenario();
 			break;
@@ -345,6 +388,8 @@ try {
 } finally {
 	// Settle every invocation before the parent fixture may remove its storage.
 	for (const entry of tracked) entry.abort.abort();
+	// Always release fixture-held provider streams, including assertion failures.
+	await Promise.allSettled(["gate", "release-first"].map((name) => writeFile(join(home, name), "go")));
 	for (const dialog of pending) dialog.resolve(false);
 	await Promise.allSettled(tracked.map((entry) => entry.promise));
 }

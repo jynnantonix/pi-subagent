@@ -313,97 +313,120 @@ export async function executeSubagent(
 	const discovery = call.tasks.some((task) => task.kind === "new")
 		? discoverAgents(ctx.cwd, call.agentScope)
 		: { agents: [], projectAgentsDir: null };
+	// One invocation owns both cancellation and callback failures. Abort all admitted
+	// children, then let every worker finish its lease before returning details.
+	const cancellation = new AbortController();
+	const abort = () => cancellation.abort();
+	signal?.addEventListener("abort", abort, { once: true });
+	if (signal?.aborted) abort();
+	let progressError: string | undefined;
 	const done: SingleResult[] = [];
-	const emit = (results: SingleResult[], text: string) =>
-		onUpdate?.({ content: [{ type: "text", text }], details: details(call, discovery.projectAgentsDir, results) });
+	const emit = (results: SingleResult[], text: string) => {
+		if (progressError) return;
+		try {
+			onUpdate?.({ content: [{ type: "text", text }], details: details(call, discovery.projectAgentsDir, results) });
+		} catch (error) {
+			progressError = `Progress update failed: ${String(error)}`;
+			abort();
+		}
+	};
 	const run = (task: SelectedTask, step?: number, taskText = task.task) =>
 		runSelected(
 			{ ...task, task: taskText },
 			call,
 			ctx,
 			discovery.agents,
-			signal,
+			cancellation.signal,
 			step,
 			(result) => {
 				emit([...done, result], `Running ${heading(result)}...`);
 			},
 			runtime,
 		);
-	if (call.mode === "parallel") {
-		const results: (SingleResult | undefined)[] = Array.from({ length: call.tasks.length });
-		let next = 0;
-		await Promise.all(
-			Array.from({ length: Math.min(4, call.tasks.length) }, async () => {
-				while (next < call.tasks.length && !signal?.aborted) {
-					const index = next++;
-					results[index] = await runSelected(
-						call.tasks[index]!,
-						call,
-						ctx,
-						discovery.agents,
-						signal,
-						undefined,
-						(r) => {
-							results[index] = r;
-							const current = results.filter((entry): entry is SingleResult => !!entry);
-							emit(
-								current,
-								`Parallel: ${current.filter((item) => !item.running).length}/${call.tasks.length} done; ${heading(r)}`,
-							);
-						},
-						runtime,
-					);
-					emit(
-						results.filter((r): r is SingleResult => !!r),
-						`Parallel: ${results.filter((entry) => entry && !entry.running).length}/${call.tasks.length} done; ${heading(results[index]!)}`,
-					);
-				}
-			}),
-		);
-		const executed = results.filter((r): r is SingleResult => !!r);
-		const success = executed.filter((r) => !isFailedResult(r)).length;
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Parallel: ${success}/${executed.length} succeeded${signal?.aborted ? " (queue aborted)" : ""}\n\n${executed.map((r) => `### [${heading(r)}] ${isFailedResult(r) ? "failed" : "completed"}\n\n${truncateParallelOutput(getResultOutput(r))}`).join("\n\n---\n\n")}`,
-				},
-			],
-			details: details(call, discovery.projectAgentsDir, executed, success === 0),
-		};
-	}
-	if (call.mode === "chain") {
-		let previous = "";
-		for (const [i, task] of call.tasks.entries()) {
-			if (signal?.aborted) break;
-			const result = await run(task, i + 1, task.task.replace(/\{previous\}/g, previous));
-			done.push(result);
-			if (isFailedResult(result))
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Chain stopped at step ${i + 1} (${heading(result)}): ${getResultOutput(result)}\nExecuted: ${done.map(heading).join(", ")}`,
-						},
-					],
-					details: details(call, discovery.projectAgentsDir, done, true),
-				};
-			previous = getFinalOutput(result.messages);
+	try {
+		if (call.mode === "parallel") {
+			const results: (SingleResult | undefined)[] = Array.from({ length: call.tasks.length });
+			let next = 0;
+			await Promise.all(
+				Array.from({ length: Math.min(4, call.tasks.length) }, async () => {
+					while (next < call.tasks.length && !cancellation.signal.aborted) {
+						const index = next++;
+						results[index] = await runSelected(
+							call.tasks[index]!,
+							call,
+							ctx,
+							discovery.agents,
+							cancellation.signal,
+							undefined,
+							(r) => {
+								results[index] = r;
+								const current = results.filter((entry): entry is SingleResult => !!entry);
+								emit(
+									current,
+									`Parallel: ${current.filter((item) => !item.running).length}/${call.tasks.length} done; ${heading(r)}`,
+								);
+							},
+							runtime,
+						);
+						emit(
+							results.filter((r): r is SingleResult => !!r),
+							`Parallel: ${results.filter((entry) => entry && !entry.running).length}/${call.tasks.length} done; ${heading(results[index]!)}`,
+						);
+					}
+				}),
+			);
+			const executed = results.filter((r): r is SingleResult => !!r);
+			const success = executed.filter((r) => !isFailedResult(r)).length;
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Parallel: ${success}/${executed.length} succeeded${cancellation.signal.aborted ? " (queue aborted)" : ""}${progressError ? `\n${progressError}` : ""}\n\n${executed.map((r) => `### [${heading(r)}] ${isFailedResult(r) ? "failed" : "completed"}\n\n${truncateParallelOutput(getResultOutput(r))}`).join("\n\n---\n\n")}`,
+					},
+				],
+				details: details(call, discovery.projectAgentsDir, executed, !!progressError || success === 0),
+			};
 		}
+		if (call.mode === "chain") {
+			let previous = "";
+			for (const [i, task] of call.tasks.entries()) {
+				if (cancellation.signal.aborted) break;
+				const result = await run(task, i + 1, task.task.replace(/\{previous\}/g, previous));
+				done.push(result);
+				if (isFailedResult(result))
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Chain stopped at step ${i + 1} (${heading(result)}): ${getResultOutput(result)}${progressError ? `\n${progressError}` : ""}\nExecuted: ${done.map(heading).join(", ")}`,
+							},
+						],
+						details: details(call, discovery.projectAgentsDir, done, true),
+					};
+				previous = getFinalOutput(result.messages);
+			}
+			return {
+				content: [
+					{
+						type: "text",
+						text: `${done.length ? getResultOutput(done.at(-1)!) : "Chain aborted before first step"}${progressError ? `\n${progressError}` : ""}\nExecuted: ${done.map(heading).join(", ")}`,
+					},
+				],
+				details: details(call, discovery.projectAgentsDir, done, !!progressError || done.length !== call.tasks.length),
+			};
+		}
+		const result = await run(call.tasks[0]!);
+		const failed = isFailedResult(result);
 		return {
 			content: [
 				{
 					type: "text",
-					text: `${done.length ? getResultOutput(done.at(-1)!) : "Chain aborted before first step"}\nExecuted: ${done.map(heading).join(", ")}`,
+					text: `${heading(result)}: ${getResultOutput(result)}${progressError ? `\n${progressError}` : ""}`,
 				},
 			],
-			details: details(call, discovery.projectAgentsDir, done, done.length !== call.tasks.length),
+			details: details(call, discovery.projectAgentsDir, [result], failed || !!progressError),
 		};
+	} finally {
+		signal?.removeEventListener("abort", abort);
 	}
-	const result = await run(call.tasks[0]!);
-	const failed = isFailedResult(result);
-	return {
-		content: [{ type: "text", text: `${heading(result)}: ${getResultOutput(result)}` }],
-		details: details(call, discovery.projectAgentsDir, [result], failed),
-	};
 }
