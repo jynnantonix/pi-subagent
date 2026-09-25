@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-subagent-resumption-design.md`.
 
-**Status:** User authorized independent plan review on 2026-09-24 and execution after it passes. Initial review requested changes; no feature task has started.
+**Status:** Approved for execution. `plan-reviewer` passed the corrected spec/plan on 2026-09-24 using `openai-codex/gpt-6-astra`; C1, C2, C3 and I1 were all addressed. The user authorized execution after this pass.
 
 ## Global Constraints
 
@@ -23,6 +23,7 @@ These requirements apply to every task and must travel with each implementer bri
 - The prefix is 1–64 lowercase ASCII letters/digits/hyphens, with alphanumeric ends. Fail allocation after 16 collisions.
 - Preserve model, thinking level, agent prompt text, tool selection, working directory, and agent identity/source on resume.
 - Capture resolved child settings, not just requested CLI arguments.
+- For new and resumed conversations, require exact provider/model membership in the child's loaded Pi catalog (`ctx.modelRegistry.getAll()`), including explicitly configured custom models. Reject synthetic fallbacks before provider calls or snapshot publication.
 - The snapshot is immutable once published. It is authoritative for later launch settings, even if the definition is changed or deleted.
 - Reject unknown IDs and concurrent use of one conversation.
 - Do not automatically expire or steal a lease.
@@ -351,7 +352,7 @@ The provider registers static `fixture/reviewer` and `fixture/other` models usin
 
 Use `createAssistantMessageEventStream`, `getCurrentTools`, and `getCurrentSystemPrompt` from `@earendil-works/pi-ai`; system/tool state now lives in transcript messages, not obsolete `context.systemPrompt` or `context.tools` fields. The checked reference is Pi's `docs/custom-provider.md` and `examples/extensions/custom-provider-anthropic/index.ts`.
 
-The main regression must make two actual, separate CLI child processes:
+The launcher-level regression below makes two actual, separate CLI child processes. It is NOT the controller-restart acceptance test; Task 3 additionally runs two independent controller processes that share only persisted storage and the returned public ID:
 
 ```typescript
 test("a second child uses native history and frozen startup settings", async (t) => {
@@ -384,7 +385,7 @@ test("a second child uses native history and frozen startup settings", async (t)
 
 `createPiFixture(t)` is defined in this task, returns the named properties/methods above, and registers cleanup with `t.after`. `newIntent` contains an actual Markdown definition path created by the helper, `fixture/reviewer:high`, and omitted tools to exercise default resolution. `changeDefaultsAndRemoveDefinition()` deletes that Markdown and changes fixture settings to the other model, lower thinking, and a different default tool list. `providerCalls()` parses the private fixture log. Use `try/finally` lease cleanup in the final tests so failed assertions cannot strand children.
 
-Run `node --import tsx --test tests/child-launch.test.ts` and observe failure before implementing the launcher. Add these grouped regressions:
+Run `node --import tsx --test tests/child-launch.test.ts` and observe failure before implementing the launcher. Explicitly cover C2 by removing `fixture/reviewer` from the loaded catalog while retaining `fixture/other`: both resume and a new request for the missing ID must make zero provider calls; the new call must not publish a snapshot. Also cover a configured custom model present in the catalog as accepted. Explicitly cover C3 with a discovered input handler that returns `handled` after the explicit bootstrap has written a ready receipt: report failure, retain the ID, and make zero provider calls. Add a successful empty-text assistant response to show completion checks do not require text. Add these grouped regressions:
 
 | Group                   | Assertions                                                                                                                                                                                                                                                       |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -396,15 +397,24 @@ Run `node --import tsx --test tests/child-launch.test.ts` and observe failure be
 
 - [ ] **Step 2: Implement fail-closed bootstrap and configuration capture.**
 
-The factory registers a private string flag `--subagent-launch <absolute-descriptor-path>` and validates that descriptor at load time. Add the input handler synchronously; all admitted tasks pass through it. The explicit helper's import/factory errors become fatal CLI startup diagnostics in Pi 0.87.1 (`dist/main.js`, runtime diagnostics before `runPrintMode`). Test that fact; it must not be assumed from a mocked API.
+The factory synchronously registers the private string flag `--subagent-launch <absolute-descriptor-path>` and the input handler. Do not read the flag or descriptor in the factory: Pi applies supplied extension flag values only after extension loading. Read and validate them inside the input handler's guarded `try`, after startup flag binding. A descriptor failure before a safe receipt path exists returns `handled` without a receipt; the parent treats the missing receipt as failure. The explicit helper's import/factory errors become fatal CLI startup diagnostics in Pi 0.87.1 (`dist/main.js`, runtime diagnostics before `runPrintMode`). Test both correct flag timing and fatal loading errors against the actual CLI.
 
-At the input boundary, read `ctx.model`, `pi.getThinkingLevel()`, `pi.getActiveTools()`, and `ctx.sessionManager.getHeader()`. Confirm canonical cwd/session path and the lease token. On new startup, build/publish version-1 `SavedConfig` from the launch identity and **effective** settings. On resume, verify exact saved model/thinking/tools and original native identity; do not republish config. Compare tool sets without treating order as a capability change. Unknown/missing tools cannot be silently ignored.
+At the input boundary, read `ctx.model`, `pi.getThinkingLevel()`, `pi.getActiveTools()`, and `ctx.sessionManager.getHeader()`. Confirm canonical cwd/session path and the lease token. For BOTH new and resumed calls, require an exact `provider`/`id` match in `ctx.modelRegistry.getAll()` before publishing a snapshot or admitting the task. This is Pi's currently loaded catalog, including configured custom models, not an additional allowlist or `getAvailable()` auth filter. Do not refresh the catalog over the network here. Pi may synthesize an absent model by assigning the requested ID to another model's properties; matching `ctx.model.id` alone is insufficient. Unlisted custom IDs must first be registered in `models.json` or a provider extension.
+
+On new startup, build/publish version-1 `SavedConfig` from the launch identity and **effective** settings. On resume, also verify exact saved model/thinking/tools and original native identity; do not republish config. Compare tool sets without treating order as a capability change. Unknown/missing tools cannot be silently ignored.
 
 The failure control flow must return `handled`, not throw through a hook Pi catches:
 
 ```typescript
+import { isAbsolute } from "node:path";
+
+pi.registerFlag("subagent-launch", { type: "string" });
 pi.on("input", async (_event, ctx) => {
+  let descriptor: LaunchDescriptor | undefined;
   try {
+    const flag = pi.getFlag("subagent-launch");
+    if (typeof flag !== "string" || !isAbsolute(flag)) throw new Error("Invalid subagent launch descriptor path");
+    descriptor = await readLaunchDescriptor(flag);
     const config = await captureOrVerifyStartup(pi, ctx, descriptor);
     await writeStartupReceipt(descriptor.receiptPath, {
       version: 1,
@@ -415,15 +425,17 @@ pi.on("input", async (_event, ctx) => {
     return { action: "continue" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    try {
-      await writeStartupReceipt(descriptor.receiptPath, {
-        version: 1,
-        token: descriptor.token,
-        ready: false,
-        error: message,
-      });
-    } catch {
-      // No receipt also fails closed in the parent; never admit this input.
+    if (descriptor) {
+      try {
+        await writeStartupReceipt(descriptor.receiptPath, {
+          version: 1,
+          token: descriptor.token,
+          ready: false,
+          error: message,
+        });
+      } catch {
+        // No receipt also fails closed in the parent; never admit this input.
+      }
     }
     try {
       process.stderr.write(`Subagent startup failed: ${message}\n`);
@@ -435,9 +447,9 @@ pi.on("input", async (_event, ctx) => {
 });
 ```
 
-Define `captureOrVerifyStartup(pi: ExtensionAPI, ctx: ExtensionContext, descriptor: LaunchDescriptor): Promise<SavedConfig>` and `writeStartupReceipt(path: string, receipt: StartupReceipt): Promise<void>` in `child-bootstrap.ts`. The latter atomically publishes a private per-run receipt. Scope the entire check/publication inside the catch above. Never throw from its error-reporting path in a way that lets the runner continue the original input; guard a failing stderr write too. Only the explicit bootstrap reads the launch flag; no persistent global state or inherited bootstrap environment marker is needed.
+Define `readLaunchDescriptor(path: string): Promise<LaunchDescriptor>`, `captureOrVerifyStartup(pi: ExtensionAPI, ctx: ExtensionContext, descriptor: LaunchDescriptor): Promise<SavedConfig>`, and `writeStartupReceipt(path: string, receipt: StartupReceipt): Promise<void>` in `child-bootstrap.ts`. The reader validates the complete descriptor schema, absolute paths, fixed session filenames, private receipt location, version and owner token before returning it. The writer atomically publishes a private per-run receipt. Scope the entire check/publication inside the catch above. Never throw from its error-reporting path in a way that lets the runner continue the original input; guard a failing stderr write too. Only the explicit bootstrap reads the launch flag; no persistent global state or inherited bootstrap environment marker is needed.
 
-A receipt is necessary because a handled input may lead to CLI exit zero. Its version/token/native ID must match the invocation and snapshot; the parent cannot infer readiness from arbitrary stdout or an old `config.json`.
+A receipt is necessary because a handled input may lead to CLI exit zero. Its version/token/native ID must match the invocation and snapshot; the parent cannot infer readiness from arbitrary stdout or an old `config.json`. It proves startup validation only, not task completion: a later discovered input handler can consume the task after the explicit bootstrap returns `continue`.
 
 - [ ] **Step 3: Implement child arguments, event decoding, and settlement.**
 
@@ -445,7 +457,7 @@ New and resumed runs both use `--mode json -p --session <paths.transcript> --ses
 
 Before spawning a resume child, `runChild` calls `validateTranscript` with the saved config while its caller still owns the lease. This is a defensive boundary for direct internal callers/tests; dispatch also preflights before asking for consent. Neither check opens or mutates history through Pi. For new calls use the requested model/thinking/tools precedence from the intent. For resume supply the exact saved provider/model, saved thinking, and `--tools` allowlist; use `--no-tools` for an empty list. The helper checks that Pi actually selected them. Do not propagate `--approve` or copy parent command-line resource flags by guessing. Use the existing executable-discovery intent, but do not treat an arbitrary Node test script as the Pi CLI; tests pass an explicit `ChildRuntime`.
 
-Use `StringDecoder("utf8")` and split only on LF. Parse `message_end` as the authoritative completed-message event. Preserve complete current results and usage accounting; do not replay the session file into `messages`. Recognize terminal provider error/aborted states even when JSON-mode process exit is zero. Validate the startup receipt after closure before treating a run as successful. Include the conversation ID in the first progress update before spawn and all later failure results.
+Use `StringDecoder("utf8")` and split only on LF. Parse `message_end` as the authoritative completed-message event. Preserve complete current results and usage accounting; do not replay the session file into `messages`. Recognize terminal provider error/aborted states even when JSON-mode process exit is zero. After closure, success requires a valid ready receipt, zero exit code, no final error/aborted response, at least one current-invocation completed assistant `message_end`, and a final `agent_settled` after the last run starts. Reset settled state on a new `agent_start`; do not use historical messages to satisfy these checks. Empty assistant text is allowed. A ready-only/intercepted input or truncated event stream fails with the retained ID instead of reporting `(no output)` as success. Include the conversation ID in the first progress update before spawn and all later failure results.
 
 Settle around the process `close` event. Track actual closure separately from `proc.killed`. Record the child PID under the owned lease immediately after spawn. Cancellation sends SIGTERM, starts a `runtime.killGraceMs` timer, sends SIGKILL if not closed, and clears the timer/listener only after settlement. An `error` event's diagnostic is retained; do not release the lease while a child can still run. If setup/output handling fails after spawn, stop and wait for that child before returning the error. Per-run temp inputs are removed in the outer `finally`.
 
@@ -535,6 +547,8 @@ Run the focused test and verify failure before implementing dispatch. Group rema
 | Actual error semantics | Runtime single/chain failures preserve details and become true tool errors through the supported hook; partial parallel failure is a batch result; invalid whole call throws before dispatch                                                                                        |
 
 Use a narrow test registration adapter that records `registerTool`/`on` handlers from `index.ts` and supplies only the context operations the tool uses. Type its recorded tool/schema and callbacks; do not add production dependency injection solely to mimic every Pi API. For actual error semantics, extend the deterministic provider with a controller mode selected by an initial `controller-case:` user prompt. It emits one `subagent` tool call, observes the resulting tool message, and terminates. Child prompts start with `Task:` and must remain in worker mode; do not select controller mode with an environment flag that children would inherit. This exercises Pi's real `tool_result` hook, not only a mocked returned object.
+
+Add the controller-restart regression to the real-tool integration group, not a helper-only test. Controller A starts a new reviewer through the actual tool, returns its public ID, and exits completely. Change fixture defaults and remove its agent definition. Controller B starts with a fresh controller session and receives only the returned public ID and the shared temporary agent-directory location (plus the new task), then calls `resume` through the actual tool. Do not pass `SavedConfig`, previous messages, native session ID, or any object from controller A into B. Assert identical public/native child IDs, prior task and answer in the child's provider context, original resolved settings, and current-run-only output/usage. The fixture controller mode terminates after observing its tool result; the test driver waits for controller A's exit before launching B.
 
 - [ ] **Step 2: Implement selection, consent, and owned execution.**
 

@@ -23,6 +23,9 @@ The following decisions were agreed in conversation:
   `~/.pi/agent/subagent-sessions/<id>/`.
 - Preserve model, thinking level, agent prompt text, tool selection, working
   directory, and agent identity/source on resume.
+- Limit both new and resumed calls to exact provider/model entries in Pi's loaded
+  model catalog, including explicitly configured custom models (user decision
+  during plan review). Synthetic fallback models are not eligible.
 - Support single, parallel, and chain calls. Show IDs to the model and user.
 - Reject unknown IDs and concurrent use of one conversation.
 - Keep conversations across controller restarts; do not delete them automatically.
@@ -181,6 +184,14 @@ selection, not a marker meaning “whatever defaults exist next time.” An agen
 model alias must become the exact selected model. The parent's active tools are
 not necessarily the child's default tools.
 
+Before task admission or snapshot publication, the selected provider/model pair
+must occur in the child's `ctx.modelRegistry.getAll()` catalog. On resume it must
+also equal the saved pair. Do not rely only on `ctx.model`: Pi can synthesize a
+missing model ID using another model's properties. This is a catalog-membership
+check, not an authentication check or separate hard-coded allowlist. Custom models
+registered through `models.json` or a provider extension remain supported; an
+unlisted custom ID must be registered before starting a conversation.
+
 The snapshot is immutable once published. It is authoritative for later launch
 settings, even if the definition is changed or deleted. Pi's transcript remains
 authoritative for conversation history. Unsupported snapshot versions, missing
@@ -243,10 +254,21 @@ needed for this launch; it must not inherit a parent's subagent-bootstrap state.
 6. Pi appends the new task and response to the existing native conversation.
    Report only this invocation's output and usage, retaining the original ID.
 
+Register the private launch flag and input hook synchronously, but read the flag
+and parse its descriptor inside the guarded input hook, not the extension factory:
+Pi supplies extension flag values after extension loading.
+
 Do not rely on a thrown extension callback alone to stop execution: Pi can
 report some extension errors and continue. The bootstrap's fail-closed behavior
 must be verified against the installed runtime, including a failure before any
 provider request. It must not pollute JSON stdout with unframed diagnostics.
+
+Startup readiness is not completion. A successful invocation requires a valid
+startup acknowledgement, zero exit code, a completed assistant message from the
+current invocation, final `agent_settled`, and no final error/aborted response.
+Empty assistant text is valid. An input handler can consume a task after startup;
+report failure with the ID if no completed invocation follows, even if Pi exits
+zero.
 
 Pi's explicit-session handling can initialize an absent or empty file. Therefore
 resume validation is mandatory; passing an ID/path to Pi is not itself proof
@@ -315,8 +337,8 @@ child resources.
 
 Existing new-agent calls, agent discovery precedence, eight-task/four-worker
 parallel limits, streaming, and chain substitution remain compatible except for
-intentional changes: persistence, ID/status output, and rejection of ambiguous
-selectors. Old ephemeral subagent runs cannot be recovered retroactively.
+intentional changes: persistence, ID/status output, rejection of ambiguous
+selectors, and rejection of models absent from the loaded catalog. Old ephemeral subagent runs cannot be recovered retroactively.
 Older controller results without IDs must still render without throwing.
 
 Target and test Pi 0.87.1 first. Pin the tested development dependency version;
