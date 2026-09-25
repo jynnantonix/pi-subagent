@@ -152,7 +152,7 @@ export function validateTranscript(paths: SessionPaths, config: SavedConfig): Pr
 
 These are interface declarations, not empty implementation stubs to commit. `randomSuffix` is a narrow deterministic test seam; its production default uses `randomBytes(4).toString("hex")`. All persisted reads must validate before returning these types. Never cast unvalidated JSON straight to `SavedConfig`.
 
-- [ ] **Step 1: Add the test/type gate and first failing tests.**
+- [x] **Step 1: Add the test/type gate and first failing tests.**
 
 Pin direct development dependencies:
 
@@ -234,7 +234,7 @@ Run `node --import tsx --test tests/session-store.test.ts`; confirm a failure du
 | Native history | Valid Pi-created session accepted; missing/empty/invalid header, mismatched cwd/native ID, malformed final line, `{}` entry, duplicate entry ID, or impossible parent reference rejected without changing file bytes                                         |
 | Lease          | Two independent processes contend; release with changed token refuses to delete; repeated own release is harmless; existing ownerless/orphaned lock stays busy; child PID recorded; failed lock-owner initialization cleans up only its own unlaunched lease |
 
-- [ ] **Step 2: Implement path/ID allocation and snapshot persistence.**
+- [x] **Step 2: Implement path/ID allocation and snapshot persistence.**
 
 Use exclusive `mkdir` for the conversation and `.lock`. Create/check the trusted root once, then reject symlinks with `lstat` for conversation components and files. Validate path containment and use fixed filenames. Do not call recursive `mkdir` on a resume ID. Resolve/canonicalize cwd and source paths while creating `AgentIdentity`; the saved definition path need not still exist on resume.
 
@@ -255,7 +255,7 @@ Validate injected suffixes too. Treat only `EEXIST` as a collision/busy result, 
 
 Atomic immutable snapshot publication: validate content and lease token, write a private uniquely named temporary file in the conversation directory, then use an exclusive hard-link publication to `config.json` so an existing destination cannot be replaced. Remove the temporary link in `finally`. Use this only on the supported local filesystem. Mutable private lease-owner metadata can use write-to-temp plus atomic rename under its owned lock. Wrap same-process read/modify/write file operations with Pi's `withFileMutationQueue`; that does not replace the cross-process lease.
 
-- [ ] **Step 3: Implement the native-history preflight and leases.**
+- [x] **Step 3: Implement the native-history preflight and leases.**
 
 Read and strictly parse every nonblank JSONL record before asking Pi to open the file. Require the first record to be a native v3 session header matching the saved native ID/cwd, and subsequent records to have valid common entry fields and current native type-specific required fields. Pin the supported entry contracts to `dist/core/session-manager.d.ts` and `docs/session-format.md` in Pi 0.87.1. Accept native custom/usage/compaction/context-edit entries and extra fields; reject unknown entry types for this pinned version rather than silently dropping them. Check IDs/parent references without rebuilding model context. Do not use Pi's permissive file parser alone as validation, and never repair a failed input.
 
@@ -265,7 +265,7 @@ The lease owner contains `token`, `controllerPid`, `acquiredAt`, and nullable `c
 
 Run the focused store test after each group. Add native fixtures with `SessionManager` from Pi; construct records manually only for deliberately corrupt variants.
 
-- [ ] **Step 4: Verify and submit for review.**
+- [x] **Step 4: Verify and submit for review.**
 
 ```bash
 jj fix -s @
@@ -344,7 +344,7 @@ export type StartupReceipt =
 
 These two interfaces live in `child-launch.ts` as type exports; the bootstrap uses type-only imports to avoid starting parent-side behavior. Descriptor parsing and startup functions belong in `child-bootstrap.ts`, with named testable exports and a default extension factory. Keep bootstrap factory side effects restricted to its explicitly requested child process.
 
-- [ ] **Step 1: Build the real CLI fixture and failing continuation test.**
+- [x] **Step 1: Build the real CLI fixture and failing continuation test.**
 
 `tests/helpers/pi-fixture.ts` creates a temporary HOME, agent directory, child cwd, and fixture provider extension. Set `HOME`, `PI_CODING_AGENT_DIR`, `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1`, and `PI_TELEMETRY=0`; supply a sanitized env containing only required OS/runtime variables and fixture variables. Do not copy real auth, project settings, HOME context, or provider-key variables. Put the provider at the temporary agent directory's `extensions/fixture-provider.ts`, so both a fixture controller and its children discover it without inheriting arbitrary CLI extension flags. Use the pinned local package's `dist/cli.js`, not the test runner's `process.argv[1]`. Disable automatic compaction/retry/cache warming in fixture settings. Use a cwd beneath the temporary HOME and `--no-context-files` for direct fixture invocations; default children also stay under this empty temporary HOME, with no real context files.
 
@@ -395,7 +395,7 @@ Run `node --import tsx --test tests/child-launch.test.ts` and observe failure be
 | Process lifecycle       | Already-aborted signal starts no child; spawn failure retains ID; child ignoring SIGTERM receives SIGKILL; promise stays pending until closure; cleanup removes timers/listeners/temp inputs; a throwing update callback cannot orphan the child                 |
 | Framing                 | Split a four-byte Unicode character between chunks; LF/CRLF records; final buffered record; U+2028 inside a JSON string; malformed protocol record yields a diagnostic rather than fabricated success                                                            |
 
-- [ ] **Step 2: Implement fail-closed bootstrap and configuration capture.**
+- [x] **Step 2: Implement fail-closed bootstrap and configuration capture.**
 
 The factory synchronously registers the private string flag `--subagent-launch <absolute-descriptor-path>` and the input handler. Do not read the flag or descriptor in the factory: Pi applies supplied extension flag values only after extension loading. Read and validate them inside the input handler's guarded `try`, after startup flag binding. A descriptor failure before a safe receipt path exists returns `handled` without a receipt; the parent treats the missing receipt as failure. The explicit helper's import/factory errors become fatal CLI startup diagnostics in Pi 0.87.1 (`dist/main.js`, runtime diagnostics before `runPrintMode`). Test both correct flag timing and fatal loading errors against the actual CLI.
 
@@ -451,7 +451,7 @@ Define `readLaunchDescriptor(path: string): Promise<LaunchDescriptor>`, `capture
 
 A receipt is necessary because a handled input may lead to CLI exit zero. Its version/token/native ID must match the invocation and snapshot; the parent cannot infer readiness from arbitrary stdout or an old `config.json`. It proves startup validation only, not task completion: a later discovered input handler can consume the task after the explicit bootstrap returns `continue`.
 
-- [ ] **Step 3: Implement child arguments, event decoding, and settlement.**
+- [x] **Step 3: Implement child arguments, event decoding, and settlement.**
 
 New and resumed runs both use `--mode json -p --session <paths.transcript> --session-dir <paths.dir> --extension <bootstrapPath> --subagent-launch <descriptorPath>`. Use a private prompt file with `--append-system-prompt`, passing the original text even if it resembles a filesystem path. Append `Task: ${task}` as one argument, preserving the existing task envelope. No shell interpolation.
 
@@ -463,7 +463,7 @@ Settle around the process `close` event. Track actual closure separately from `p
 
 The test process probe implements explicit modes for fragmented stdout, exit-before-response, and ignoring SIGTERM. Tests wait for its ready handshake before sending abort; use a short injected grace interval, not a five-second sleep per case.
 
-- [ ] **Step 4: Verify and submit for review.**
+- [x] **Step 4: Verify and submit for review.**
 
 ```bash
 jj fix -s @
@@ -505,7 +505,7 @@ export function executeSubagent(
 
 `AgentScope` comes from `agents.ts`; `SubagentParams` is the schema-derived type; the other types come from Pi/`results.ts`. Test the exported validator directly and exercise real dispatch with the isolated fixture. Keep pure normalization separate from filesystem/process work. Unknown IDs are runtime failures with their requested ID, not a reason to create a session.
 
-- [ ] **Step 1: Write the validator and orchestration failures first.**
+- [x] **Step 1: Write the validator and orchestration failures first.**
 
 ```typescript
 test("a task has one selector and parallel IDs must be unique", () => {
@@ -550,7 +550,7 @@ Use a narrow test registration adapter that records `registerTool`/`on` handlers
 
 Add the controller-restart regression to the real-tool integration group, not a helper-only test. Controller A starts a new reviewer through the actual tool, returns its public ID, and exits completely. Change fixture defaults and remove its agent definition. Controller B starts with a fresh controller session and receives only the returned public ID and the shared temporary agent-directory location (plus the new task), then calls `resume` through the actual tool. Do not pass `SavedConfig`, previous messages, native session ID, or any object from controller A into B. Assert identical public/native child IDs, prior task and answer in the child's provider context, original resolved settings, and current-run-only output/usage. The fixture controller mode terminates after observing its tool result; the test driver waits for controller A's exit before launching B.
 
-- [ ] **Step 2: Implement selection, consent, and owned execution.**
+- [x] **Step 2: Implement selection, consent, and owned execution.**
 
 `validateCall` rejects field presence conflicts before effects; it does not silently trim/repair IDs or agent names. Preserve task text after confirming it is nonblank. A resume-only call skips `discoverAgents`. In a mixed call discover only to resolve new selections; resumes read the saved identity, never a same-named discovered definition.
 
@@ -574,7 +574,7 @@ For project consent, a controller trust check only skips the prompt if its canon
 
 Use a bounded worker loop for parallel tasks, checking abort before taking the next item. Repeated IDs within a chain are allowed only because each completed invocation releases its lease before the next begins. Do not launch any task for a syntactically invalid batch. A runtime unknown/busy ID is a per-task failure, not an all-or-nothing batch transaction.
 
-- [ ] **Step 3: Preserve result details and use the supported failure hook.**
+- [x] **Step 3: Preserve result details and use the supported failure hook.**
 
 Throw for invalid top-level calls before any task starts. For started single/chain failures, return their full details with `failed: true`, then mark the result as an error through Pi's supported `tool_result` hook. This avoids losing IDs/details through the runtime's generic thrown-error conversion:
 
@@ -591,7 +591,7 @@ Partial parallel failure has explicit per-task status and `failed: false`; if al
 
 Update `getFinalOutput` callers so metadata never contaminates chain substitution. Put conversation ID and `new`/`resumed` status outside capped output bodies. Include executed chain IDs even if only the last assistant answer is returned as the main content. Extend the existing renderers, retaining optional-field fallbacks for pre-feature results. Failed allocated-but-uninitialized sessions must explicitly say `not resumable`.
 
-- [ ] **Step 4: Verify and submit for review.**
+- [x] **Step 4: Verify and submit for review.**
 
 ```bash
 jj fix -s @
@@ -606,7 +606,7 @@ Report the actual CLI controller test showing a marked tool error with preserved
 
 **Files:** create `README.md`; update this plan's checkboxes/evidence only after the corresponding work and review pass. If implementation shows a design change is necessary, discuss it and update the spec explicitly; do not silently weaken it to match code.
 
-- [ ] **Step 1: Write operator documentation against implemented behavior.**
+- [x] **Step 1: Write operator documentation against implemented behavior.**
 
 README sections: purpose and Pi 0.87.1 support; `npm ci --ignore-scripts`, `npm run setup:jj`, `jj fix -s @`, `npm run check`; new/resume/single/parallel/chain examples; saved configuration versus mutable environment; default and overridden storage roots; private-data warning; no retroactive recovery of old ephemeral runs; busy/error/partial initialization diagnostics; and manual stale-lease recovery.
 
@@ -614,7 +614,7 @@ Document recovery as inspection first: read the lock owner, verify controller an
 
 Document installation as a **separate approved operation**: replace or point the existing extension directory to the complete source directory, not only `index.ts` (it now imports sibling modules); avoid loading both copies; reload/restart Pi and verify its exposed tool schema contains `resume`. Preserve a backup of the previous installed files. Do not perform those actions while writing docs.
 
-- [ ] **Step 2: Run controller-owned final checks and seal the documentation.**
+- [x] **Step 2: Run controller-owned final checks and seal the documentation.**
 
 ```bash
 jj fix -s @
@@ -631,6 +631,21 @@ The controller supplies the original baseline through the top-of-stack jj diff, 
 - [ ] **Step 4: Report completion or perform separately approved installation verification.**
 
 Completion report names stable jj change-ids, tests, and whether installation/reload occurred. If the user approves installation, the controller runs the real new-reviewer/follow-up smoke test and checks identical public/native session IDs and retained history. Do not declare general workflow capability from source-only tests or from this task's reviewer-continuity exception.
+
+## Execution evidence
+
+Tasks 1–3 passed independent spec/quality review and controller-run `npm run check`:
+
+| Task | jj change      | Final task review             | Controller gate               |
+| ---- | -------------- | ----------------------------- | ----------------------------- |
+| 1    | `qmqrswltqszk` | Approved after two fix rounds | Format/types, 10 tests passed |
+| 2    | `kltuqxrwmwrs` | Approved after one fix round  | Format/types, 23 tests passed |
+| 3    | `wpknsotnrotp` | Approved after two fix rounds | Format/types, 37 tests passed |
+
+Review and command evidence is in `.superpowers/sdd/subagent-resumption/`.
+Task 3's isolated orchestration runner adds failure-safe cleanup and tests shared-UI consent, cancelled waiters, bounded scheduling and mixed live/completed progress. The two-controller CLI test uses only the public ID and persisted storage to resume after controller exit and definition deletion.
+
+Task 4 documentation is written. The controller's final gate passed formatting, types and all 37 tests; whole-change review is pending. Installation/reload and live-provider smoke verification have not occurred. No installed extension files were changed.
 
 ## Self-review coverage
 
