@@ -1,4 +1,4 @@
-import { appendFile } from "node:fs/promises";
+import { access, appendFile } from "node:fs/promises";
 import {
 	createAssistantMessageEventStream,
 	getCurrentSystemPrompt,
@@ -8,6 +8,7 @@ import {
 	type Model,
 	type SimpleStreamOptions,
 	type TranscriptContext,
+	type ToolCall,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -64,14 +65,66 @@ export default function (pi: ExtensionAPI) {
 				try {
 					await options?.onPayload?.({ fixture: true }, model);
 					await options?.onResponse?.({ status: 200, headers: {} }, model);
+					const user = context.messages.find((m) => m.role === "user");
+					const userText =
+						user?.role === "user"
+							? typeof user.content === "string"
+								? user.content
+								: user.content
+										.filter((p) => p.type === "text")
+										.map((p) => p.text)
+										.join("")
+							: "";
+					const controller = userText.startsWith("controller-case:")
+						? (JSON.parse(userText.slice("controller-case:".length)) as {
+								params: Record<string, unknown>;
+								controllerTask: string;
+							})
+						: undefined;
 					const prior = context.messages.some((m) => m.role === "assistant");
 					await appendFile(
 						process.env.FIXTURE_LOG!,
 						`${JSON.stringify({ messages: context.messages, model: `${model.provider}/${model.id}`, tools: getCurrentTools(context.messages).map((t) => t.name), systemPrompt: getCurrentSystemPrompt(context.messages), reasoning: options?.reasoning })}\n`,
 					);
 					if (options?.signal?.aborted) throw new Error("aborted");
-					const text = process.env.FIXTURE_EMPTY_TEXT === "1" ? "" : prior ? "follow-up-answer" : "first-answer";
+					if (userText.startsWith("Task: hold:") && process.env.FIXTURE_GATE) {
+						const gate =
+							userText.startsWith("Task: hold:0") && process.env.FIXTURE_RELEASE_FIRST
+								? process.env.FIXTURE_RELEASE_FIRST
+								: process.env.FIXTURE_GATE;
+						while (
+							!(await access(gate).then(
+								() => true,
+								() => false,
+							))
+						) {
+							if (options?.signal?.aborted) throw new Error("aborted");
+							await new Promise((resolve) => setTimeout(resolve, 20));
+						}
+					}
+					if (userText.startsWith("Task: fail:")) throw new Error("fixture runtime failure");
+					const text = controller
+						? "controller-done"
+						: process.env.FIXTURE_EMPTY_TEXT === "1"
+							? ""
+							: prior
+								? "follow-up-answer"
+								: "first-answer";
 					stream.push({ type: "start", partial: message });
+					if (controller && !context.messages.some((m) => m.role === "toolResult")) {
+						const call = {
+							type: "toolCall" as const,
+							id: "fixture-subagent-call",
+							name: "subagent",
+							arguments: controller.params as ToolCall["arguments"],
+						};
+						message.content.push(call);
+						stream.push({ type: "toolcall_start", contentIndex: 0, partial: message });
+						stream.push({ type: "toolcall_end", contentIndex: 0, toolCall: call, partial: message });
+						message.stopReason = "toolUse";
+						stream.push({ type: "done", reason: "toolUse", message });
+						return;
+					}
 					message.content.push({ type: "text", text: "" });
 					stream.push({ type: "text_start", contentIndex: 0, partial: message });
 					message.content[0] = { type: "text", text };

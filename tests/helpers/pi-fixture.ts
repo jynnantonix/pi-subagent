@@ -1,4 +1,5 @@
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { TestContext } from "node:test";
@@ -75,6 +76,68 @@ export async function createPiFixture(t: TestContext) {
 		env,
 		runtime,
 		newIntent,
+		async orchestrate(scenario: string) {
+			const child = spawn(
+				process.execPath,
+				[
+					"--import",
+					resolve(import.meta.dirname, "../../node_modules/tsx/dist/loader.mjs"),
+					resolve(import.meta.dirname, "../fixtures/orchestration-runner.ts"),
+					scenario,
+				],
+				{ cwd, env, stdio: ["ignore", "pipe", "pipe"] },
+			);
+			let stdout = "",
+				stderr = "";
+			child.stdout.on("data", (data: Buffer) => {
+				stdout += data.toString();
+			});
+			child.stderr.on("data", (data: Buffer) => {
+				stderr += data.toString();
+			});
+			const exit = await new Promise<number | null>((done) => child.on("close", done));
+			return { exit, stdout, stderr };
+		},
+		async controller(params: Record<string, unknown>, controllerTask = "controller-task") {
+			// A fresh Pi process and native controller session for each call. No prior controller state is passed.
+			const args = [
+				join(packageDir, "dist/cli.js"),
+				"--mode",
+				"json",
+				"-p",
+				"--no-session",
+				"--extension",
+				resolve(import.meta.dirname, "../../index.ts"),
+				"--model",
+				"fixture/other",
+				"--tools",
+				"subagent",
+				`controller-case:${JSON.stringify({ params, controllerTask })}`,
+			];
+			const child = spawn(process.execPath, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
+			let stdout = "",
+				stderr = "";
+			child.stdout.on("data", (data: Buffer) => {
+				stdout += data.toString();
+			});
+			child.stderr.on("data", (data: Buffer) => {
+				stderr += data.toString();
+			});
+			const exit = await new Promise<number | null>((done) => child.on("close", done));
+			const events = stdout
+				.split("\n")
+				.filter(Boolean)
+				.map((line) => JSON.parse(line));
+			return {
+				events,
+				exit,
+				stderr,
+				tool: events.filter((event) => event.type === "message_end" && event.message?.role === "toolResult").at(-1)
+					?.message,
+				answer: events.filter((event) => event.type === "message_end" && event.message?.role === "assistant").at(-1)
+					?.message,
+			};
+		},
 		async providerCalls(): Promise<any[]> {
 			return (await readFile(log, "utf8").catch(() => ""))
 				.trim()

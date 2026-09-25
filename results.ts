@@ -26,6 +26,7 @@ export interface SingleResult {
 	conversationId?: string;
 	resumed?: boolean;
 	resumable?: boolean;
+	running?: boolean;
 }
 export interface SubagentDetails {
 	mode: "single" | "parallel" | "chain";
@@ -38,9 +39,10 @@ export function getFinalOutput(messages: Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
 		if (msg.role === "assistant") {
-			for (const part of msg.content) {
-				if (part.type === "text") return part.text;
-			}
+			return msg.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("");
 		}
 	}
 	return "";
@@ -57,7 +59,13 @@ export function getResultOutput(result: SingleResult): string {
 export function truncateParallelOutput(output: string): string {
 	const byteLength = Buffer.byteLength(output, "utf8");
 	if (byteLength <= PER_TASK_OUTPUT_CAP) return output;
-	let truncated = output.slice(0, PER_TASK_OUTPUT_CAP);
-	while (Buffer.byteLength(truncated, "utf8") > PER_TASK_OUTPUT_CAP) truncated = truncated.slice(0, -1);
-	return `${truncated}\n\n[Output truncated: ${byteLength - Buffer.byteLength(truncated, "utf8")} bytes omitted. Full output preserved in tool details.]`;
+	let truncated = "";
+	let bytes = 0;
+	for (const character of output) {
+		const size = Buffer.byteLength(character, "utf8");
+		if (bytes + size > PER_TASK_OUTPUT_CAP) break;
+		truncated += character;
+		bytes += size;
+	}
+	return `${truncated}\n\n[Output truncated: ${byteLength - bytes} bytes omitted. Full output preserved in tool details.]`;
 }

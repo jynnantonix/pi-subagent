@@ -39,6 +39,9 @@ export interface SessionLease {
 	release(): Promise<void>;
 }
 const ID = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?-[0-9a-f]{8}$/;
+export function isPublicSessionId(id: string): boolean {
+	return ID.test(id);
+}
 const slug = (name: string) =>
 	name
 		.toLowerCase()
@@ -63,7 +66,7 @@ const ioError = (operation: string, id: string, error: unknown): Error =>
 	new Error(`${operation} for ${id}: ${String(error)}`, { cause: error });
 
 export function sessionPaths(root: string, id: string): SessionPaths {
-	if (!isAbsolute(root) || resolve(root) !== root || !ID.test(id)) invalid("session path or ID");
+	if (!isAbsolute(root) || resolve(root) !== root || !isPublicSessionId(id)) invalid("session path or ID");
 	const dir = join(root, id);
 	if (!dir.startsWith(root.endsWith(sep) ? root : `${root}${sep}`)) invalid("session containment");
 	return {

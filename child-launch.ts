@@ -75,7 +75,7 @@ function startResult(request: ChildRequest): SingleResult {
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
 		conversationId: request.lease.paths.id,
 		resumed: request.intent.kind === "resume",
-		resumable: false,
+		resumable: request.intent.kind === "resume" ? true : undefined,
 	};
 }
 export async function runChild(
@@ -333,6 +333,17 @@ export async function runChild(
 		if (proc && !closed) {
 			stop();
 			await closePromise;
+		}
+		if (request.intent.kind === "new") {
+			// Early failures bypass the normal post-exit snapshot check.
+			result.resumable = false;
+			try {
+				const saved = await readSavedConfig(request.lease.paths);
+				await validateTranscript(request.lease.paths, saved);
+				result.resumable = true;
+			} catch {
+				// No complete persisted conversation exists.
+			}
 		}
 		result.exitCode = 1;
 		result.errorMessage = error instanceof Error ? error.message : String(error);
