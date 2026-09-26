@@ -61,6 +61,68 @@ test("a second child uses native history and frozen startup settings", async (t)
 	assert.equal((await readSavedConfig(paths)).piSessionId, saved.piSessionId);
 });
 
+// Removing the spawn marker lets the discovered main extension register subagent in new and resumed children.
+test("new and resumed Pi children exclude subagent without changing the parent environment", async (t) => {
+	const fixture = await createPiFixture(t);
+	fixture.env.PI_SUBAGENT = "0";
+	const parentMarker = process.env.PI_SUBAGENT;
+	const runtime = {
+		...fixture.runtime,
+		invocation: {
+			...fixture.runtime.invocation,
+			prefixArgs: [
+				...fixture.runtime.invocation.prefixArgs,
+				"--extension",
+				resolve(import.meta.dirname, "../index.ts"),
+			],
+		},
+	};
+	const inventory = join(fixture.home, "child-tools.jsonl");
+	await writeFile(
+		join(fixture.agentDir, "extensions/inventory.ts"),
+		`import { appendFileSync } from "node:fs";
+export default (pi) => pi.on("input", () => appendFileSync(${JSON.stringify(inventory)}, JSON.stringify({ marker: process.env.PI_SUBAGENT, tools: pi.getAllTools().map((tool) => tool.name) }) + "\\n"));`,
+	);
+	const { paths, result } = await newRun(fixture, fixture.newIntent, runtime);
+	assert.equal(result.exitCode, 0, result.stderr);
+	assert.equal(getFinalOutput(result.messages), "first-answer");
+	const initial = await readSavedConfig(paths);
+	assert.deepEqual(initial.tools, ["read", "grep"]);
+	const next = await resumed(fixture, paths, runtime);
+	assert.equal(next.exitCode, 0, next.stderr);
+	assert.equal(next.conversationId, paths.id);
+	assert.equal(getFinalOutput(next.messages), "follow-up-answer");
+	assert.equal((await readSavedConfig(paths)).piSessionId, initial.piSessionId);
+	const calls = await fixture.providerCalls();
+	assert.equal(calls.length, 2);
+	assert.match(JSON.stringify(calls[1].messages), /first-task|first-answer/);
+	assert.deepEqual(
+		calls.map((call) => call.tools),
+		[
+			["read", "grep"],
+			["read", "grep"],
+		],
+	);
+	const inventories = (await readFile(inventory, "utf8"))
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
+	assert.deepEqual(
+		inventories.map((entry) => entry.marker),
+		["1", "1"],
+	);
+	for (const entry of inventories) assert.equal(entry.tools.includes("subagent"), false);
+	assert.equal(fixture.env.PI_SUBAGENT, "0");
+	assert.equal(process.env.PI_SUBAGENT, parentMarker);
+
+	// An old saved tool list must still fail the frozen startup check, not be filtered.
+	await writeFile(paths.config, JSON.stringify({ ...initial, tools: ["read", "grep", "subagent"] }));
+	const rejected = await resumed(fixture, paths, runtime);
+	assert.notEqual(rejected.exitCode, 0);
+	assert.match(rejected.stderr, /mismatch|unknown|unavailable/i);
+	assert.equal((await fixture.providerCalls()).length, 2);
+});
+
 async function newRun(
 	fixture: Awaited<ReturnType<typeof createPiFixture>>,
 	intent = fixture.newIntent,

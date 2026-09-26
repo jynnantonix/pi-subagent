@@ -73,6 +73,22 @@ Definitions are Markdown files with `name` and `description` frontmatter and pro
 
 There are no per-call model, prompt or tool overrides for resume.
 
+## Child registration guard
+
+Every new or resumed child is launched with `PI_SUBAGENT=1`. The main extension
+returns before registering its tool or event hook when that value is exactly
+`1`. Controllers with the variable unset (or a different value) still register
+`subagent`. The child bootstrap and unrelated extensions remain active.
+
+The launcher copies the environment for the child; it does not change the
+controller's environment. Do not export this marker globally: it would also
+suppress registration in controllers. Child shell commands inherit it. This is
+a registration guard, not a security boundary against a child that can run code.
+
+Older conversations whose frozen tool list includes `subagent` cannot resume
+under the guard. Compatibility is intentionally not maintained; no snapshot or
+history is migrated or silently filtered. Start a new conversation instead.
+
 ## Storage and frozen settings
 
 Storage is `path.join(getAgentDir(), "subagent-sessions")`: normally `~/.pi/agent/subagent-sessions`. Pi's `PI_CODING_AGENT_DIR` override changes the agent directory and thus this root; it does not migrate existing conversations. Use an absolute, nonsymlinked path on a local filesystem.
@@ -127,4 +143,4 @@ Local installation changes the user package settings, not the checkout. Keep the
 
 Reload/restart Pi after installation. Inspect the tool schema and confirm that single and batch items include `resume`. Then start a reviewer and send a follow-up with its returned ID; verify the same public/native IDs and retained context. A live smoke check is separate from the no-network automated tests and may incur provider costs.
 
-Existing controllers can retain an old tool schema until reload. Success in a fresh process does not establish that the current controller has acquired resumption or that all reviewer-continuity workflow requirements are met.
+Existing controllers can retain an old tool schema and launcher until reload. Reload/restart the controller to acquire the child marker as well as the current schema. Success in a fresh process does not establish that an already-running controller has acquired either change, or that all reviewer-continuity workflow requirements are met.

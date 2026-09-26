@@ -69,6 +69,7 @@ const aggregateUsage = (entries: SingleResult[]) => {
 };
 
 export default function (pi: ExtensionAPI): void {
+	if (process.env.PI_SUBAGENT === "1") return;
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "subagent") return;
 		const details = event.details;

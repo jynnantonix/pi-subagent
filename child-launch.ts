@@ -176,7 +176,7 @@ export async function runChild(
 		if (signal?.aborted) throw new Error("Child invocation aborted before spawn");
 		proc = spawn(runtime.invocation.command, args, {
 			cwd: identity.cwd,
-			env: runtime.env,
+			env: { ...runtime.env, PI_SUBAGENT: "1" },
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
