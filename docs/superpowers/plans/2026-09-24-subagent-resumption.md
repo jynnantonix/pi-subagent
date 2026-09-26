@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-24-subagent-resumption-design.md`.
 
-**Status:** Source implemented and independently reviewed; installation remains pending separate approval. `plan-reviewer` passed the corrected spec/plan on 2026-09-24 using `openai-codex/gpt-6-astra`; C1, C2, C3 and I1 were all addressed. The user authorized execution after this pass. Final review and controller verification evidence is recorded below.
+**Status:** Source implemented and independently reviewed. User-approved local package installation and live `gpt-6-sol` new/resume smoke verification passed in fresh controllers; the current interactive controller still needs `/reload`. `plan-reviewer` passed the corrected spec/plan on 2026-09-24 using `openai-codex/gpt-6-astra`; C1, C2, C3 and I1 were all addressed. The user authorized execution after this pass. Final review and controller verification evidence is recorded below.
 
 ## Global Constraints
 
@@ -612,7 +612,7 @@ README sections: purpose and Pi 0.87.1 support; `npm ci --ignore-scripts`, `npm 
 
 Document recovery as inspection first: read the lock owner, verify controller and child have stopped, and only then remove that ID's `.lock` directory. Never recommend removing a busy lease based on age alone. Do not delete the transcript or snapshot to make a resume succeed. Warn that external tool effects may already have happened before an interrupted run.
 
-Document installation as a **separate approved operation**: replace or point the existing extension directory to the complete source directory, not only `index.ts` (it now imports sibling modules); avoid loading both copies; reload/restart Pi and verify its exposed tool schema contains `resume`. Preserve a backup of the previous installed files. Do not perform those actions while writing docs.
+Document installation as a **separate approved operation**. The user subsequently selected local Pi package registration: declare only `index.ts` as an extension entry point and run `pi install` on the complete checkout. Remove the previous copied extension to avoid duplicate registration, then reload/restart Pi and verify its exposed schema contains `resume`. The user waived a backup of the verified example copy. Inspect for unexpected local modifications before removal; do not perform installation merely while writing docs.
 
 - [x] **Step 2: Run controller-owned final checks and seal the documentation.**
 
@@ -647,7 +647,11 @@ Task 3's isolated orchestration runner adds failure-safe cleanup and tests share
 
 Task 4 source acceptance is complete. Whole-change review found FR-R1 (parallel progress failure could return before sibling closure) and FR-R2 (invalid compaction targets could drop retained history). Both were fixed in `szwrnkytqrxq` and independently re-reviewed: spec compliance and code quality approved, no open findings. The controller's final `npm run check` passed formatting, types and all **40 tests**, with no skips or failures; evidence: `final-controller-check.log` and `final-rereview-1.md` in the workspace above.
 
-This is source completion only. Installation/reload and live-provider smoke verification have not occurred. The installed `index.ts` and `agents.ts` still match the Pi 0.87.1 baseline. No general workflow-capability or deployed-verification claim is made.
+At source completion, installation and live-provider smoke verification had not occurred. The user subsequently approved installation without a backup and selected local package registration instead of copying files. Packaging revision `vzkwovmwpvkp` adds the sole `index.ts` manifest entry, peer metadata and an isolated package-discovery test; independent review approved it and the controller gate passed **41 tests**. Global Pi settings register `/srv/code/pi-subagent`; the copied extension directory was removed after exact file verification. Fresh discovery finds one `subagent` tool with `resume`, no loader errors and no auto-loaded bootstrap.
+
+The controller then ran the independently reviewed live smoke runner using **`openai-codex/gpt-6-sol`** for both fresh controllers and their child. It passed: controller A created `live-memory-d7438976adb4dc8f731cb8fb-899d435c`, exited, and its temporary agent definition was deleted. Controller B received only the public ID and recall task and returned the exact prior marker. The native ID stayed `01a0dbe8-cf16-7576-bd61-65555b492fd3`; snapshot bytes were unchanged, history appended, and no lease remained. Private controller logs are under `/tmp/pi-subagent-live-smoke-Nt3lYA/`; native history remains under the corresponding `<agent-dir>/subagent-sessions/<id>/` directory. Packaging and smoke-review evidence is in `.superpowers/sdd/local-package/`.
+
+This verifies the installed package in fresh processes, not a schema refresh in the current interactive controller. `/reload` or restart is still required here. No general workflow-capability claim is made.
 
 ## Self-review coverage
 
