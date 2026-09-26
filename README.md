@@ -110,16 +110,21 @@ An interrupted tool may already have changed files or external systems. There is
 3. Once all possible writers have stopped, remove **only that conversation's `.lock` directory**. Never clear leases because they are old or remove locks across the whole storage root.
 4. Retry `resume` using the original public ID. Keep `config.json` and `session.jsonl` unchanged. If validation still fails, investigate; do not erase history to force a new session under the old ID.
 
-## Installation is a separate operation
+## Install as a local Pi package
 
-Source development and automated tests do not update the extension loaded in your controller. This work has **not** changed `~/.pi/agent/extensions/subagent/`.
+After installation is approved, register the checkout from its repository root:
 
-After installation is separately approved:
+```sh
+pi install "$PWD"
+pi list
+```
 
-1. Back up the previous installed extension outside auto-discovered extension paths.
-2. Replace the existing subagent directory with, or point it to, this **complete source directory** with dependencies available. Do not copy only `index.ts`: it imports sibling modules, and child startup explicitly loads `child-bootstrap.ts`. Do not install the bootstrap as a separate auto-loaded extension.
-3. Ensure only one copy registers the `subagent` tool; remove duplicate explicit extension paths or package registrations as needed.
-4. Reload/restart Pi. Inspect the exposed tool schema and confirm that single and batch task items include `resume`.
-5. Start a reviewer and send a follow-up with its returned ID. Verify the same public/native IDs and retained context. This live smoke check is separate from the no-network automated tests and may incur provider costs.
+The manifest exposes only `index.ts`. Pi loads its sibling modules from this checkout; no files need copying into `~/.pi/agent/extensions`. `child-bootstrap.ts` remains an explicitly loaded child helper, not a second auto-loaded extension. Pi supplies the declared peer dependencies; pinned development dependencies support the checks above.
 
-Until installation/reload and this smoke check pass, do not assume the current controller supports resumption or that general reviewer-continuity workflows are available.
+If replacing a copied example, remove its old `extensions/subagent` directory after checking for local changes you need to retain. Also remove duplicate explicit extension paths or package registrations. Only one copy must register `subagent`.
+
+Local installation changes the user package settings, not the checkout. Keep the checkout at its registered path. Source changes take effect on reload or in a fresh process, so this is not a version-pinned deployment. Use a pinned published/remote package later if that is required.
+
+Reload/restart Pi after installation. Inspect the tool schema and confirm that single and batch items include `resume`. Then start a reviewer and send a follow-up with its returned ID; verify the same public/native IDs and retained context. A live smoke check is separate from the no-network automated tests and may incur provider costs.
+
+Existing controllers can retain an old tool schema until reload. Success in a fresh process does not establish that the current controller has acquired resumption or that all reviewer-continuity workflow requirements are met.
