@@ -1,6 +1,6 @@
 # Persistent Pi subagents
 
-A Pi `subagent` extension that starts isolated child processes and resumes their native conversations by public ID. History survives child exit and controller restart. Based on Pi's subagent example; tested with **Pi 0.87.1**, Node.js 22.19+ and a local Linux/POSIX filesystem. Other Pi versions and network filesystems are not verified.
+A Pi `subagent` extension that starts isolated child processes and resumes their native conversations by public ID. History survives child exit and controller restart. Based on Pi's subagent example; tested with **Pi 1.4.0**, Node.js 22.19+ and a local Linux/POSIX filesystem. Other Pi versions and network filesystems are not verified.
 
 ## Develop and verify
 
@@ -112,7 +112,7 @@ There is no automatic deletion, retention policy, session browser or migration. 
 
 Completion requires a settled, non-aborted final run and a completed assistant response without an error, abort, or output-limit truncation. A zero process exit code alone is not success. Automatic recovery may replace an earlier failed or truncated response; only the final run decides completion. Failures retain partial output and any valid persisted conversation for later resume.
 
-- **Unknown/invalid ID or history:** resume fails without creating or repairing a conversation. This includes invalid compaction references that could otherwise discard retained context. Keep the original files for inspection. Native history validation targets Pi 0.87.1.
+- **Unknown/invalid ID or history:** resume fails without creating or repairing a conversation. This includes invalid compaction references that could otherwise discard retained context. Keep the original files for inspection. Native history validation targets Pi 1.4.0.
 - **`not resumable`:** allocation occurred but a valid snapshot/history pair is unavailable. The ID is diagnostic, not a promise of recoverability. Start a new conversation if initialization never completed; do not fabricate its missing files.
 - **Busy conversation:** another owner holds `.lock`. No second writer starts, and leases are never stolen based on age. A busy result does not establish whether the history is resumable.
 - **Runtime failure/cancellation:** existing history is retained. Cancellation stops queue admission, signals active children, escalates from SIGTERM to SIGKILL after five seconds if needed, and waits for closure before releasing their leases. A later resume adds a new task to whatever Pi persisted.
