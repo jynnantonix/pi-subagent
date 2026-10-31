@@ -15,6 +15,11 @@ if (process.argv[2] === "ignore-term") {
     "receipt-not-boolean",
     "receipt-rejected-empty",
     "receipt-rejected-invalid",
+    "length",
+    "settled-aborted",
+    "recovered-length",
+    "recovered-abort",
+    "unsettled-recovery",
   ].includes(process.argv[2])
 ) {
   const args = process.argv.slice(3);
@@ -33,38 +38,49 @@ if (process.argv[2] === "ignore-term") {
   const emit = (event, newline = "\n") => process.stdout.write(JSON.stringify(event) + newline);
   emit({ type: "agent_start" }, "\r\n");
   if (
-    ["fragmented", "receipt-not-boolean", "receipt-rejected-empty", "receipt-rejected-invalid"].includes(
-      process.argv[2],
-    )
+    [
+      "fragmented",
+      "receipt-not-boolean",
+      "receipt-rejected-empty",
+      "receipt-rejected-invalid",
+      "length",
+      "settled-aborted",
+      "recovered-length",
+      "recovered-abort",
+      "unsettled-recovery",
+    ].includes(process.argv[2])
   ) {
     const text = "🥳\u2028line";
-    const event = Buffer.from(
-      JSON.stringify({
-        type: "message_end",
-        message: {
-          role: "assistant",
-          content: [{ type: "text", text }],
-          api: "fixture-api",
-          provider: "fixture",
-          model: "reviewer",
-          stopReason: "stop",
-          timestamp: Date.now(),
-          usage: {
-            input: 3,
-            output: 2,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 5,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-          },
-        },
-      }) + "\r\n",
-    );
+    const message = {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      api: "fixture-api",
+      provider: "fixture",
+      model: "reviewer",
+      stopReason: process.argv[2].includes("length") ? "length" : "stop",
+      timestamp: Date.now(),
+      usage: {
+        input: 3,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 5,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+    };
+    const event = Buffer.from(JSON.stringify({ type: "message_end", message }) + "\r\n");
     const unicode = event.indexOf(Buffer.from("🥳"));
     process.stdout.write(event.subarray(0, unicode + 2));
     await new Promise((resolve) => setTimeout(resolve, 10));
     process.stdout.write(event.subarray(unicode + 2));
-    emit({ type: "agent_settled" }, "");
+    if (["recovered-length", "recovered-abort", "unsettled-recovery"].includes(process.argv[2])) {
+      emit({ type: "agent_settled", aborted: process.argv[2] === "recovered-abort" });
+      emit({ type: "agent_start" });
+      emit({ type: "message_end", message: { ...message, stopReason: "stop" } });
+      if (process.argv[2] !== "unsettled-recovery") emit({ type: "agent_settled", aborted: false }, "");
+    } else {
+      emit({ type: "agent_settled", aborted: process.argv[2] === "settled-aborted" }, "");
+    }
   } else if (process.argv[2] === "malformed") {
     process.stdout.write("{not-json}\n");
     emit({ type: "agent_settled" });

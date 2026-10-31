@@ -93,6 +93,7 @@ export async function runChild(
 	let abort: (() => void) | undefined;
 	let diagnostic = "";
 	let settled = false;
+	let settledAborted = false;
 	let started = false;
 	let completedAssistant = false;
 	const identity = request.intent.kind === "new" ? request.intent.identity : request.intent.saved;
@@ -201,7 +202,7 @@ export async function runChild(
 		const processLine = (line: string) => {
 			if (line.endsWith("\r")) line = line.slice(0, -1);
 			if (!line.trim()) return;
-			let event: { type?: string; message?: Message };
+			let event: { type?: string; message?: Message; aborted?: boolean };
 			try {
 				event = JSON.parse(line);
 			} catch {
@@ -215,8 +216,12 @@ export async function runChild(
 			if (event.type === "agent_start") {
 				started = true;
 				settled = false;
+				settledAborted = false;
 			}
-			if (event.type === "agent_settled" && started) settled = true;
+			if (event.type === "agent_settled" && started) {
+				settled = true;
+				settledAborted = event.aborted === true;
+			}
 			if (event.type === "message_end" && event.message) {
 				const msg = event.message;
 				result.messages.push(msg);
@@ -323,6 +328,9 @@ export async function runChild(
 					: !settled
 						? "Child did not settle"
 						: `Child exited ${result.exitCode}`);
+		if (!diagnostic && settledAborted) diagnostic = "Child run aborted";
+		if (!diagnostic && result.stopReason === "length")
+			diagnostic = "Response truncated: model output token limit reached";
 		if (diagnostic) {
 			result.exitCode = 1;
 			result.errorMessage = diagnostic;

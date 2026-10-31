@@ -12,7 +12,7 @@ import {
 	validateTranscript,
 } from "../session-store.ts";
 import { runChild } from "../child-launch.ts";
-import { getFinalOutput } from "../results.ts";
+import { getFinalOutput, isFailedResult } from "../results.ts";
 import { createPiFixture } from "./helpers/pi-fixture.ts";
 
 // Losing native --session persistence or replaying old output breaks this test.
@@ -496,6 +496,46 @@ test("fragmented UTF-8, CRLF, final record, and malformed events do not invent s
 	assert.notEqual(malformed.exitCode, 0);
 	assert.match(malformed.stderr, /Malformed child JSON record/i);
 	assert.equal((await fixture.providerCalls()).length, 1);
+});
+
+// Only the final run decides completion; failures must preserve output and resumable history.
+test("completion rejects truncation and aborted settlement but accepts recovered runs", async (t) => {
+	const fixture = await createPiFixture(t);
+	const { paths, result } = await newRun(fixture);
+	assert.equal(result.exitCode, 0, result.stderr);
+	const transcript = await readFile(paths.transcript, "utf8");
+	const saved = await readSavedConfig(paths);
+	const probe = resolve(import.meta.dirname, "fixtures/process-probe.mjs");
+	for (const [mode, error] of [
+		["length", /truncated.*token limit/i],
+		["settled-aborted", /aborted/i],
+		["recovered-length", undefined],
+		["recovered-abort", undefined],
+		["unsettled-recovery", /did not settle/i],
+	] as const) {
+		await t.test(mode, async () => {
+			const current = await resumed(fixture, paths, {
+				...fixture.runtime,
+				invocation: { command: process.execPath, prefixArgs: [probe, mode] },
+			});
+			assert.equal(current.exitCode, error ? 1 : 0, mode);
+			assert.equal(isFailedResult(current), !!error, mode);
+			if (error) assert.match(current.errorMessage ?? "", error, mode);
+			else assert.equal(current.errorMessage, undefined, mode);
+			assert.equal(getFinalOutput(current.messages), "🥳\u2028line", mode);
+			assert.equal(current.conversationId, paths.id, mode);
+			assert.equal(current.resumable, true, mode);
+			assert.equal(await readFile(paths.transcript, "utf8"), transcript, mode);
+			assert.deepEqual(await readSavedConfig(paths), saved, mode);
+		});
+	}
+	// Old persisted results may have a successful exit code despite truncated output.
+	assert.equal(isFailedResult({ ...result, stopReason: "length" }), true);
+	const next = await resumed(fixture, paths);
+	assert.equal(next.exitCode, 0, next.stderr);
+	assert.equal(getFinalOutput(next.messages), "follow-up-answer");
+	assert.equal((await readSavedConfig(paths)).piSessionId, saved.piSessionId);
+	assert.equal((await fixture.providerCalls()).length, 2);
 });
 
 // A negative or malformed receipt cannot be rescued by a completed assistant and settlement.

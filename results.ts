@@ -48,7 +48,12 @@ export function getFinalOutput(messages: Message[]): string {
 	return "";
 }
 export function isFailedResult(result: SingleResult): boolean {
-	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+	return (
+		result.exitCode !== 0 ||
+		result.stopReason === "error" ||
+		result.stopReason === "aborted" ||
+		result.stopReason === "length"
+	);
 }
 export function getResultOutput(result: SingleResult): string {
 	if (isFailedResult(result)) {
