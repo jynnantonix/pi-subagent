@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { DefaultResourceLoader, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { validateToolArguments } from "@earendil-works/pi-ai";
+import { SubagentParamsSchema, validateCall } from "../dispatch.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -41,6 +43,26 @@ test("local package discovers only the subagent entry point", async () => {
 					const schema = tools[0]!.definition.parameters;
 					assert.ok("properties" in schema && typeof schema.properties === "object" && schema.properties !== null);
 					assert.ok(Object.hasOwn(schema.properties, "resume"));
+					assert.ok("agentScope" in schema.properties);
+					// Loader aliases and standalone imports must expose the same JSON Schema.
+					assert.deepEqual(JSON.parse(JSON.stringify(schema)), JSON.parse(JSON.stringify(SubagentParamsSchema)));
+					assert.deepEqual(JSON.parse(JSON.stringify(schema.properties.agentScope)), {
+						type: "string",
+						enum: ["user", "project", "both"],
+						description: "Scope for discovering new agents. Default: user.",
+						default: "user",
+					});
+					const validate = (args: Record<string, unknown>) =>
+						validateToolArguments(tools[0]!.definition, {
+							type: "toolCall",
+							id: "scope-test",
+							name: "subagent",
+							arguments: { agent: "reviewer", task: "review", ...args },
+						});
+					assert.equal(validateCall(validate({})).agentScope, "user");
+					for (const agentScope of ["user", "project", "both"] as const)
+						assert.equal(validateCall(validate({ agentScope })).agentScope, agentScope);
+					assert.throws(() => validate({ agentScope: "invalid" }));
 				}
 			}
 		} finally {

@@ -1,7 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { getAgentDir, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
 import { discoverAgents, type AgentConfig, type AgentScope } from "./agents.ts";
@@ -43,7 +42,9 @@ export const SubagentParamsSchema = Type.Object({
 		}),
 	),
 	agentScope: Type.Optional(
-		StringEnum(["user", "project", "both"] as const, {
+		// Keep TypeBox inference and the plain string enum without Pi loader aliases.
+		Type.Enum(["user", "project", "both"], {
+			type: "string",
 			description: "Scope for discovering new agents. Default: user.",
 			default: "user",
 		}),

@@ -529,7 +529,7 @@ export async function validateTranscript(paths: SessionPaths, config: SavedConfi
 			)
 				invalid(`transcript entry ${index + 1}`);
 			if (value.type === "compaction" && value.firstKeptEntryId !== value.id) {
-				// Pi 1.4.0 keeps only entries on this compaction's earlier path;
+				// Pi 1.5.0 keeps only entries on this compaction's earlier path;
 				// a target elsewhere silently becomes retain-none. Check links, not context.
 				let ancestor = value.parentId as string | null;
 				while (ancestor !== null && ancestor !== value.firstKeptEntryId) ancestor = parents.get(ancestor)!;
